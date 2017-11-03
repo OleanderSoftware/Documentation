@@ -1,0 +1,254 @@
+---
+output: html_document
+---
+
+```{r setup, include=FALSE}
+require(knitr)
+require(ggpubr)
+require(cowplot)
+require(pander)
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(message=FALSE)
+knitr::opts_chunk$set(warning=FALSE)
+```
+
+## Plotting County Data in __R__ Using __geom_map()__
+
+###### by Blake Madden
+
+This article demonstrates how to plot city and county-level data onto a state map. In this example, we will be plotting store locations for a fictitious bakery company in Ohio. Our goal will be to see how various cities and counties compare to each other in terms of how many store locations they have. We will accomplish this by creating datasets of our bakeries and then building geographical heatmaps showing the density of their locations.
+
+### Creating a State Map
+
+First, we will construct a dataset which lists cities with their respective number of bakery locations. (The county corresponding to each city is also included.) Then we will create a one-way table with the total locations for each county (this will be used for our plots).
+
+```{r dataSetup}
+require(ggplot2)
+require(maps)
+require(mapproj)
+require(dplyr)
+require(ggrepel)
+
+location.data <- data.frame(county = c('montgomery', 'miami', 'miami',
+                                       'franklin', 'montgomery',
+                                       'montgomery', 'miami'),
+                         city = c('dayton', 'piqua', 'troy',
+                                  'columbus', 'vandalia',
+                                  'huber heights', 'tipp city'),
+                         count = c(5, 2, 7, 13, 8, 1, 2))
+
+location.data.by.county <- location.data %>%
+  #split the data into county groups
+  group_by(county) %>%
+  #then tally up the number of locations for each group
+  summarize(count = sum(count))
+```
+
+Our data will look like this:
+
+```{r echo=FALSE, fig.asp=.3}
+plot(ggtexttable(location.data, rows = NULL, theme = ttheme("mBlue")))
+```
+
+```{r echo=FALSE, fig.asp=.3}
+plot(ggtexttable(location.data.by.county, rows = NULL, theme = ttheme("mBlue")))
+```
+
+Note that county names in your data should be lowercased so that they match the dataset returned from __map_data()__.
+
+Next, we will gather the Ohio county geolocation data using the __map_data()__ function. Once we have this data, we will need to rename the last two columns to "state" and "id" for __geom_map()__ to match data at the county level.
+
+```{r ohioData}
+ohio.map.data <- map_data('county', 'ohio')
+names(ohio.map.data)[5:6] <- c('state', 'id')
+```
+
+Next, we will construct an Ohio map with its counties outlined. Then we will draw a layer of the bakery locations (by county) on top of that. Note that a color gradient is applied to each county, which corresponds to its respective number of store locations.
+
+```{r ohioMap}
+ohio.map <- ggplot() +
+  #remove decorations so that we only see the county outlines
+  #adjust the font on the legend
+  theme(line = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        legend.title = element_text(size=10),
+        legend.text = element_text(size=8)) +
+  #plot an outline of the counties
+  geom_map(aes(map_id = ohio.map.data$id), map = ohio.map.data, fill='white', color='black') +
+  #plot the (county-level) location data
+  geom_map(data=location.data.by.county, aes(map_id = county, fill=count),
+           map = ohio.map.data, color='black') +
+  #change the color scheme of the county legend and also customize its title
+  scale_fill_gradient2(low='white', high='blue', name='County level') +
+  labs(title = 'Bakery Locations') + #add a title
+  theme(plot.title = element_text(hjust = 0.5)) + #center the title
+  coord_map() +
+  #adjust the axes to fit the state outline
+  expand_limits(x = ohio.map.data$long, y = ohio.map.data$lat)
+
+print(ohio.map)
+```
+
+### Creating a County Map
+
+Now we will create a map of counties with city data plotted onto it. First, get a subset of the Ohio map data which only contains counties with stores. This will enable us to plot only these counties, instead of the entire state.
+
+```{r}
+#remembering that the 'id' column in ohio.map.data is the name of the county,
+#we are asking to get only the coordinates data where the county name can be
+#found in our list of bakery counties.
+county.map.data <- filter(ohio.map.data, id %in% location.data$county)
+```
+
+Next, we will need to supply geolocation data for the cities:
+
+```{r}
+city.map.data <- data.frame(city = c('dayton', 'piqua', 'troy', 'columbus',
+                                     'vandalia', 'huber heights', 'tipp city'),
+                            long = c(-84.199632, -84.24023, -84.20422,
+                                     -83.00275, -84.19298, -84.12738,
+                                     -84.176),
+                            lat = c(39.777394, 40.14761, 40.04003,
+                                    39.96199, 39.8913, 39.86229, 39.96109))
+```
+
+This data will appear as such:
+
+```{r echo=FALSE, fig.asp=.3}
+plot(ggtexttable(city.map.data, rows = NULL, theme = ttheme("mBlue")))
+```
+
+Note that for simplicity, we are only using a single set of coordinates for each city. This information is available from <http://download.geonames.org/export/dump/>.
+
+Next, merge our bakery data with the city geolocation data. This will enable us to plot the city/bakery data onto the map.
+
+```{r}
+location.data <- location.data %>% inner_join(city.map.data , by = 'city')
+```
+
+The updated store data will appear as such:
+
+```{r echo=FALSE, fig.asp=.3}
+plot(ggtexttable(location.data, rows = NULL, theme = ttheme("mBlue")))
+```
+
+We can also create a subset showing the cities with the most store locations (per county):
+
+```{r}
+highest.store.density <- location.data %>% group_by(county) %>% slice(which.max(count))
+```
+
+```{r echo=FALSE, fig.asp=.3}
+plot(ggtexttable(highest.store.density , rows = NULL, theme = ttheme("mBlue")))
+```
+
+As a side note, if we wish to find the cities with the least bakeries, we would use __which.min__ instead of __which.max__. This could be useful for determining the best cities for possible expansion.
+
+Finally, we will plot the county maps and overlay the city data (as points) on top of those. Note that the size of the city points are scaled by their corresponding values. For example, Vandalia has the most store locations in Montgomery county.
+
+```{r}
+county.map <- ggplot() +
+  #remove decorations so that we only see the county outlines
+  #adjust the font on the legend
+  theme(line = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        legend.title = element_text(size=10),
+        legend.text = element_text(size=8)) +
+  #plot the counties, where their colors are scaled to their number of stores
+  geom_map(data=location.data.by.county, aes(map_id = county, fill=count),
+           map = county.map.data, color='black') +
+  scale_fill_gradient2(low='white', high='blue', name='County level') +
+  #plot the stores by city
+  geom_point(data = location.data,
+             #make the city points red and translucent
+             #(to make any possible overlaps easier to see)
+             color='red',
+             alpha=.75,
+             aes(x=long, y = lat,
+                 #the points on the cities will be scaled to their
+                 #respective number of stores
+                 size=count)) +
+  #customize the city level title, color scheme, and flip the order so that the legends
+  #are going in the same direction
+  scale_colour_gradient(low = 'pink', high = 'red') +
+  labs(size='City level', title = 'Bakery Locations',
+       caption = 'Cities with the most locations in each county are labeled') +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 1, size = 10)) + #center the title
+  guides(size = guide_legend(reverse = TRUE)) +
+  #place labels on cities with the most locations in each county.
+  #note that we use ggrepel use to prevent any possible label overlapping.
+  ggrepel::geom_label_repel(aes(x=long, y = lat, label = city),
+                            data=highest.store.density ) +
+  #adjust the mapping to the curvature of the earth
+  coord_map() +
+  #fit the axis scaling to the counties that we are plotting
+  expand_limits(x = county.map.data$long, y = county.map.data$lat)
+
+print(county.map)
+```
+
+### Creating a Multi-state Map
+
+As a final note, adding more states to the map is a simple matter of plotting them and expanding the axes to fit the new (geolocation) data.
+
+```{r multiState}
+indiana.map.data <- map_data('county', 'indiana')
+names(indiana.map.data)[5:6] <- c('state', 'id')
+
+kentucky.map.data <- map_data('county', 'kentucky')
+names(kentucky.map.data)[5:6] <- c('state', 'id')
+
+pennsylvania.map.data <- map_data('county', 'pennsylvania')
+names(pennsylvania.map.data)[5:6] <- c('state', 'id')
+
+ohio.map <- ggplot() +
+  #remove decorations so that we only see the county outlines,
+  #adjust the font on the legend
+  theme(line = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        legend.title = element_text(size=10),
+        legend.text = element_text(size=8)) +
+  geom_map(aes(map_id = ohio.map.data$id),
+           map = ohio.map.data, fill='white', color='black') +
+  geom_map(data=location.data.by.county, aes(map_id = county, fill=count),
+           map = ohio.map.data, color='black') +
+  scale_fill_gradient2(low='white', high='blue', name='County level') +
+  #draw additional states (use different outline colors for each state)
+  geom_map(aes(map_id = indiana.map.data$id), map = indiana.map.data,
+           fill='white', color='sandybrown') +
+  geom_map(aes(map_id = kentucky.map.data$id), map = kentucky.map.data,
+           fill='white', color='royalblue') +
+  geom_map(aes(map_id = pennsylvania.map.data$id), map = pennsylvania.map.data,
+           fill='white', color='slategrey') +
+  #draw titles
+  labs(title = 'Bakery Locations',
+       subtitle = 'Quad-state Area',
+       caption = 'Note: store location data currently only available for Ohio') +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 1, size = 10)) +
+  coord_map() +
+  #expand the axes to fit all of the longitude/latitude points
+  #for all four states
+  expand_limits(x = c(ohio.map.data$long,
+                      indiana.map.data$long,
+                      kentucky.map.data$long,
+                      pennsylvania.map.data$long),
+                y = c(ohio.map.data$lat,
+                      indiana.map.data$lat,
+                      kentucky.map.data$lat,
+                      pennsylvania.map.data$lat))
+
+print(ohio.map)
+```

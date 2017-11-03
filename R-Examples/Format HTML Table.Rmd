@@ -1,0 +1,74 @@
+---
+title: "Sales Report"
+output: html_document
+---
+
+```{r include=FALSE}
+#Formatting a dataset into an HTML table for knitr output.
+#Author: Blake Madden
+
+require(dplyr)
+require(tidyr)
+require(stringr)
+
+#Although functions such as xtable, pander, and kable are available
+#for table printing in knitr, sometimes we may need something more
+#customized for our data.
+
+#The below function will format our dataset into an HTML table where:
+#The columns are ignored (so that the bakers remain anonymous)
+#A custom header will be added
+#An optional description can be added
+#The column widths are tailored to our specific data
+format.sales.table <- function(data, header, explanation = '',
+                               header.color = '#4CAF50',
+                               header.font.color = 'white')
+    {
+    table.header <- paste0('<table width=\'100%\'>\n<thead><td colspan=\'',
+                           ncol(data),
+                           '\' style=\'font-weight:bold; background-color:',
+                                header.color, '; color:', header.font.color, ';',
+                           'padding: 10px\'>', header, '</td></thead>\n<tbody>\n',
+                           ifelse(str_length(explanation)>0,
+                                  paste0('<tr><td style=\'border-bottom: ',
+                                         '1px solid #ddd; padding: 10px;\' colspan=\'',
+                                          ncol(data),
+                                          '>', explanation, '</td></tr>\n'),
+                                  ''))
+    table.body <- character(0)
+    for (i in seq(nrow(data)))
+        {
+        table.body <- paste0(table.body, '\n<tr>')
+        for (j in seq(ncol(data)))
+            {
+            #Include a divider line beneath each row.
+            #Also, the first column is much wider than the others,
+            #and the others are right aligned.
+            table.body <- paste0(table.body,
+                               '<td style=\'border-bottom: 1px solid #ddd; ',
+                               'text-align: ', ifelse(j==1, 'left', 'right'), '; ',
+                               'padding: 10px;\' width=\'',
+                               ifelse(j==1, 60, 20), '%\'>',
+                               data[i,j], '</td>')
+            }
+        table.body <- paste0(table.body, '</tr>')
+        }
+    table.final <- paste0(table.header, table.body, '\n</tbody>\n</table>')
+    }
+```
+
+```{r results="asis", width='100%', echo=FALSE}
+#construct a dataset where you have a column showing the week
+#of sales, followed by a column for each baker and his/her
+#respective sales from that week.
+sales.data <- as_tibble(list(
+  date = c('10/01/2017', '10/08/2017', '10/15/2017', '10/22/2017', '10/29/2017'),
+  Blake = c(320, 310, 310, 290, 220),
+  Mizzie = c(330, 350, 360, 365, 340),
+  Gabi = c(340, 380, 410, 420, 450)
+))
+
+#print the tabular report
+cat(format.sales.table(sales.data, 'Sales Report',
+                       'Weekly sales for the <b>Vandalia</b> bakery.'))
+```
